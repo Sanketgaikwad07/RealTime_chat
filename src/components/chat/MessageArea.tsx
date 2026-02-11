@@ -3,15 +3,15 @@ import { useChat } from "@/context/ChatContext";
 import { useAuth } from "@/context/AuthContext";
 import ChatAvatar from "./Avatar";
 import { format } from "date-fns";
-import { Send, Smile, Paperclip, Phone, Video, MoreVertical, ArrowLeft } from "lucide-react";
+import { Send, Smile, Paperclip, ArrowLeft } from "lucide-react";
 
 interface MessageAreaProps {
   onBack?: () => void;
 }
 
 const MessageArea = ({ onBack }: MessageAreaProps) => {
-  const { activeRoom, messages, sendMessage, loading } = useChat();
-  const { user } = useAuth();
+  const { activeRoom, messages, sendMessage, loading, profiles } = useChat();
+  const { user, profile } = useAuth();
   const [input, setInput] = useState("");
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -53,7 +53,7 @@ const MessageArea = ({ onBack }: MessageAreaProps) => {
   }
 
   const otherUser = activeRoom.participants.find((p) => p.id !== user?.id) || activeRoom.participants[0];
-  const displayName = activeRoom.name || otherUser.username;
+  const displayName = activeRoom.name || otherUser?.username || "Chat";
 
   return (
     <div className="flex-1 flex flex-col bg-background h-full">
@@ -64,27 +64,9 @@ const MessageArea = ({ onBack }: MessageAreaProps) => {
             <ArrowLeft className="h-5 w-5 text-foreground" />
           </button>
         )}
-        <ChatAvatar user={otherUser} showStatus size="md" />
+        {otherUser && <ChatAvatar user={otherUser} size="md" />}
         <div className="flex-1 min-w-0">
           <h2 className="font-semibold text-foreground text-sm">{displayName}</h2>
-          <p className="text-xs text-muted-foreground">
-            {otherUser.online ? (
-              <span className="text-online">Online</span>
-            ) : (
-              "Offline"
-            )}
-          </p>
-        </div>
-        <div className="flex items-center gap-1">
-          <button className="p-2 rounded-lg hover:bg-accent transition-colors text-muted-foreground">
-            <Phone className="h-4 w-4" />
-          </button>
-          <button className="p-2 rounded-lg hover:bg-accent transition-colors text-muted-foreground">
-            <Video className="h-4 w-4" />
-          </button>
-          <button className="p-2 rounded-lg hover:bg-accent transition-colors text-muted-foreground">
-            <MoreVertical className="h-4 w-4" />
-          </button>
         </div>
       </div>
 
@@ -96,21 +78,28 @@ const MessageArea = ({ onBack }: MessageAreaProps) => {
           </div>
         ) : (
           messages.map((msg, i) => {
-            const isMine = msg.senderId === user?.id;
+            const isMine = msg.sender_id === user?.id;
             const showTime =
               i === 0 ||
-              new Date(msg.timestamp).getTime() - new Date(messages[i - 1].timestamp).getTime() > 300000;
+              new Date(msg.created_at).getTime() - new Date(messages[i - 1].created_at).getTime() > 300000;
+
+            const senderProfile = profiles[msg.sender_id] || profile;
 
             return (
               <div key={msg.id}>
                 {showTime && (
                   <div className="text-center my-3">
                     <span className="text-xs text-muted-foreground bg-accent px-3 py-1 rounded-full">
-                      {format(new Date(msg.timestamp), "h:mm a")}
+                      {format(new Date(msg.created_at), "h:mm a")}
                     </span>
                   </div>
                 )}
                 <div className={`flex ${isMine ? "justify-end" : "justify-start"} mb-0.5`}>
+                  {!isMine && senderProfile && (
+                    <div className="mr-2 self-end">
+                      <ChatAvatar user={senderProfile} size="sm" />
+                    </div>
+                  )}
                   <div
                     className={`max-w-[75%] px-4 py-2.5 text-sm leading-relaxed ${
                       isMine

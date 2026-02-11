@@ -1,32 +1,27 @@
-export interface User {
+export interface Profile {
   id: string;
   username: string;
-  email: string;
-  avatar?: string;
-  online: boolean;
-  lastSeen?: string;
-}
-
-export interface Message {
-  id: string;
-  senderId: string;
-  chatRoomId: string;
-  content: string;
-  timestamp: string;
-  readStatus: boolean;
+  avatar_url: string | null;
 }
 
 export interface ChatRoom {
   id: string;
-  name?: string;
-  type: "private" | "group";
-  participants: User[];
-  lastMessage?: Message;
+  name: string | null;
+  type: string;
+  created_by: string | null;
+  created_at: string;
+  // Joined client-side
+  participants: Profile[];
+  lastMessage?: MessageRow;
   unreadCount: number;
 }
 
-export interface AuthState {
-  user: User | null;
-  token: string | null;
-  isAuthenticated: boolean;
+export interface MessageRow {
+  id: string;
+  room_id: string;
+  sender_id: string;
+  content: string;
+  created_at: string;
+  // Joined client-side
+  sender?: Profile;
 }
