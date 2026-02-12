@@ -14,6 +14,44 @@ export type Database = {
   }
   public: {
     Tables: {
+      call_signals: {
+        Row: {
+          callee_id: string
+          caller_id: string
+          created_at: string
+          id: string
+          payload: Json | null
+          room_id: string
+          type: string
+        }
+        Insert: {
+          callee_id: string
+          caller_id: string
+          created_at?: string
+          id?: string
+          payload?: Json | null
+          room_id: string
+          type: string
+        }
+        Update: {
+          callee_id?: string
+          caller_id?: string
+          created_at?: string
+          id?: string
+          payload?: Json | null
+          room_id?: string
+          type?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "call_signals_room_id_fkey"
+            columns: ["room_id"]
+            isOneToOne: false
+            referencedRelation: "chat_rooms"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       chat_rooms: {
         Row: {
           created_at: string
@@ -42,23 +80,35 @@ export type Database = {
         Row: {
           content: string
           created_at: string
+          file_name: string | null
+          file_type: string | null
+          file_url: string | null
           id: string
           room_id: string
           sender_id: string
+          status: string
         }
         Insert: {
           content: string
           created_at?: string
+          file_name?: string | null
+          file_type?: string | null
+          file_url?: string | null
           id?: string
           room_id: string
           sender_id: string
+          status?: string
         }
         Update: {
           content?: string
           created_at?: string
+          file_name?: string | null
+          file_type?: string | null
+          file_url?: string | null
           id?: string
           room_id?: string
           sender_id?: string
+          status?: string
         }
         Relationships: [
           {
@@ -75,6 +125,7 @@ export type Database = {
           avatar_url: string | null
           created_at: string
           id: string
+          last_seen: string | null
           updated_at: string
           username: string
         }
@@ -82,6 +133,7 @@ export type Database = {
           avatar_url?: string | null
           created_at?: string
           id: string
+          last_seen?: string | null
           updated_at?: string
           username: string
         }
@@ -89,6 +141,7 @@ export type Database = {
           avatar_url?: string | null
           created_at?: string
           id?: string
+          last_seen?: string | null
           updated_at?: string
           username?: string
         }

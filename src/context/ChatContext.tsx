@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useCallback, useEffect, ReactNode } from "react";
+import { createContext, useContext, useState, useCallback, useEffect, useRef, ReactNode } from "react";
 import { ChatRoom, MessageRow, Profile } from "@/types/chat";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "./AuthContext";
@@ -9,11 +9,15 @@ interface ChatContextType {
   messages: MessageRow[];
   profiles: Record<string, Profile>;
   loading: boolean;
+  typingUsers: Record<string, string>; // userId -> username
+  onlineUsers: Set<string>;
   loadChatRooms: () => Promise<void>;
   selectRoom: (room: ChatRoom) => Promise<void>;
-  sendMessage: (content: string) => Promise<void>;
+  sendMessage: (content: string, file?: File) => Promise<void>;
   startChat: (otherUserId: string) => Promise<ChatRoom | null>;
   searchUsers: (query: string) => Promise<Profile[]>;
+  setTyping: (isTyping: boolean) => void;
+  markAsRead: (messageIds: string[]) => Promise<void>;
 }
 
 const ChatContext = createContext<ChatContextType | null>(null);
@@ -31,6 +35,15 @@ export const ChatProvider = ({ children }: { children: ReactNode }) => {
   const [messages, setMessages] = useState<MessageRow[]>([]);
   const [profiles, setProfiles] = useState<Record<string, Profile>>({});
   const [loading, setLoading] = useState(false);
+  const [typingUsers, setTypingUsers] = useState<Record<string, string>>({});
+  const [onlineUsers, setOnlineUsers] = useState<Set<string>>(new Set());
+  const typingTimeoutRef = useRef<Record<string, NodeJS.Timeout>>({});
+  const presenceChannelRef = useRef<any>(null);
+  const activeRoomRef = useRef<ChatRoom | null>(null);
+
+  useEffect(() => {
+    activeRoomRef.current = activeRoom;
+  }, [activeRoom]);
 
   // Cache profiles
   const fetchProfiles = useCallback(async (userIds: string[]) => {
@@ -38,19 +51,52 @@ export const ChatProvider = ({ children }: { children: ReactNode }) => {
     if (missing.length === 0) return profiles;
     const { data } = await supabase
       .from("profiles")
-      .select("id, username, avatar_url")
+      .select("id, username, avatar_url, last_seen")
       .in("id", missing);
     const updated = { ...profiles };
-    data?.forEach((p) => (updated[p.id] = p));
+    data?.forEach((p: any) => (updated[p.id] = p));
     setProfiles(updated);
     return updated;
   }, [profiles]);
+
+  // Update last_seen periodically
+  useEffect(() => {
+    if (!user) return;
+    const updatePresence = () => {
+      supabase.from("profiles").update({ last_seen: new Date().toISOString() }).eq("id", user.id).then(() => {});
+    };
+    updatePresence();
+    const interval = setInterval(updatePresence, 30000);
+    return () => clearInterval(interval);
+  }, [user]);
+
+  // Presence channel for online/offline
+  useEffect(() => {
+    if (!user) return;
+
+    const channel = supabase.channel("online-users", {
+      config: { presence: { key: user.id } },
+    });
+
+    channel
+      .on("presence", { event: "sync" }, () => {
+        const state = channel.presenceState();
+        setOnlineUsers(new Set(Object.keys(state)));
+      })
+      .subscribe(async (status) => {
+        if (status === "SUBSCRIBED") {
+          await channel.track({ user_id: user.id, online_at: new Date().toISOString() });
+        }
+      });
+
+    presenceChannelRef.current = channel;
+    return () => { supabase.removeChannel(channel); };
+  }, [user]);
 
   const loadChatRooms = useCallback(async () => {
     if (!user) return;
     setLoading(true);
 
-    // Get rooms user belongs to
     const { data: memberships } = await supabase
       .from("room_memberships")
       .select("room_id")
@@ -64,29 +110,21 @@ export const ChatProvider = ({ children }: { children: ReactNode }) => {
 
     const roomIds = memberships.map((m) => m.room_id);
 
-    // Get rooms
     const { data: rooms } = await supabase
       .from("chat_rooms")
       .select("*")
       .in("id", roomIds);
 
-    if (!rooms) {
-      setChatRooms([]);
-      setLoading(false);
-      return;
-    }
+    if (!rooms) { setChatRooms([]); setLoading(false); return; }
 
-    // Get all memberships for these rooms to find participants
     const { data: allMemberships } = await supabase
       .from("room_memberships")
       .select("room_id, user_id")
       .in("room_id", roomIds);
 
-    // Get all participant profiles
     const allUserIds = [...new Set(allMemberships?.map((m) => m.user_id) || [])];
     const profileMap = await fetchProfiles(allUserIds);
 
-    // Get last message for each room
     const chatRoomList: ChatRoom[] = [];
     for (const room of rooms) {
       const participants = (allMemberships || [])
@@ -94,7 +132,6 @@ export const ChatProvider = ({ children }: { children: ReactNode }) => {
         .map((m) => profileMap[m.user_id])
         .filter(Boolean);
 
-      // Get last message
       const { data: lastMsgArr } = await supabase
         .from("messages")
         .select("*")
@@ -110,7 +147,6 @@ export const ChatProvider = ({ children }: { children: ReactNode }) => {
       });
     }
 
-    // Sort by last message time
     chatRoomList.sort((a, b) => {
       const ta = a.lastMessage?.created_at || a.created_at;
       const tb = b.lastMessage?.created_at || b.created_at;
@@ -124,34 +160,72 @@ export const ChatProvider = ({ children }: { children: ReactNode }) => {
   const selectRoom = useCallback(async (room: ChatRoom) => {
     setActiveRoom(room);
     setLoading(true);
+    setTypingUsers({});
     const { data } = await supabase
       .from("messages")
       .select("*")
       .eq("room_id", room.id)
       .order("created_at", { ascending: true });
 
-    // Fetch sender profiles
     const senderIds = [...new Set(data?.map((m) => m.sender_id) || [])];
     await fetchProfiles(senderIds);
 
     setMessages(data || []);
     setLoading(false);
-  }, [fetchProfiles]);
 
-  const sendMessage = useCallback(async (content: string) => {
+    // Mark unread messages as read
+    if (data && user) {
+      const unread = data.filter(m => m.sender_id !== user.id && m.status !== "read");
+      if (unread.length > 0) {
+        await supabase
+          .from("messages")
+          .update({ status: "read" })
+          .in("id", unread.map(m => m.id));
+      }
+    }
+  }, [fetchProfiles, user]);
+
+  const sendMessage = useCallback(async (content: string, file?: File) => {
     if (!activeRoom || !user) return;
+
+    let fileUrl: string | null = null;
+    let fileName: string | null = null;
+    let fileType: string | null = null;
+
+    if (file) {
+      const ext = file.name.split(".").pop();
+      const path = `${user.id}/${Date.now()}.${ext}`;
+      const { error: uploadErr } = await supabase.storage
+        .from("chat-files")
+        .upload(path, file);
+
+      if (!uploadErr) {
+        const { data: urlData } = supabase.storage.from("chat-files").getPublicUrl(path);
+        fileUrl = urlData.publicUrl;
+        fileName = file.name;
+        fileType = file.type;
+      }
+    }
+
     const { error } = await supabase.from("messages").insert({
       room_id: activeRoom.id,
       sender_id: user.id,
-      content,
+      content: content || (fileName ? `Sent a file: ${fileName}` : ""),
+      file_url: fileUrl,
+      file_name: fileName,
+      file_type: fileType,
     });
     if (error) console.error("Send error:", error);
   }, [activeRoom, user]);
 
+  const markAsRead = useCallback(async (messageIds: string[]) => {
+    if (messageIds.length === 0) return;
+    await supabase.from("messages").update({ status: "read" }).in("id", messageIds);
+  }, []);
+
   const startChat = useCallback(async (otherUserId: string): Promise<ChatRoom | null> => {
     if (!user) return null;
 
-    // Check if private chat already exists
     const { data: myRooms } = await supabase
       .from("room_memberships")
       .select("room_id")
@@ -187,7 +261,6 @@ export const ChatProvider = ({ children }: { children: ReactNode }) => {
       }
     }
 
-    // Create new room
     const { data: newRoom, error: roomErr } = await supabase
       .from("chat_rooms")
       .insert({ type: "private", created_by: user.id })
@@ -196,7 +269,6 @@ export const ChatProvider = ({ children }: { children: ReactNode }) => {
 
     if (roomErr || !newRoom) return null;
 
-    // Add both members
     await supabase.from("room_memberships").insert([
       { room_id: newRoom.id, user_id: user.id },
       { room_id: newRoom.id, user_id: otherUserId },
@@ -224,6 +296,57 @@ export const ChatProvider = ({ children }: { children: ReactNode }) => {
     return data || [];
   }, [user]);
 
+  // Typing indicator via broadcast
+  const setTyping = useCallback((isTyping: boolean) => {
+    if (!activeRoom || !user) return;
+    const channel = supabase.channel(`typing:${activeRoom.id}`);
+    channel.subscribe((status) => {
+      if (status === "SUBSCRIBED") {
+        channel.send({
+          type: "broadcast",
+          event: "typing",
+          payload: { userId: user.id, username: profiles[user.id]?.username || "Someone", isTyping },
+        });
+        // Unsubscribe after sending
+        setTimeout(() => supabase.removeChannel(channel), 100);
+      }
+    });
+  }, [activeRoom, user, profiles]);
+
+  // Listen for typing in active room
+  useEffect(() => {
+    if (!activeRoom || !user) return;
+
+    const channel = supabase
+      .channel(`typing-listen:${activeRoom.id}`)
+      .on("broadcast", { event: "typing" }, (payload) => {
+        const { userId, username, isTyping } = payload.payload;
+        if (userId === user.id) return;
+
+        if (isTyping) {
+          setTypingUsers(prev => ({ ...prev, [userId]: username }));
+          // Clear after 3s
+          if (typingTimeoutRef.current[userId]) clearTimeout(typingTimeoutRef.current[userId]);
+          typingTimeoutRef.current[userId] = setTimeout(() => {
+            setTypingUsers(prev => {
+              const next = { ...prev };
+              delete next[userId];
+              return next;
+            });
+          }, 3000);
+        } else {
+          setTypingUsers(prev => {
+            const next = { ...prev };
+            delete next[userId];
+            return next;
+          });
+        }
+      })
+      .subscribe();
+
+    return () => { supabase.removeChannel(channel); };
+  }, [activeRoom?.id, user]);
+
   // Realtime subscription for new messages
   useEffect(() => {
     if (!user) return;
@@ -235,14 +358,17 @@ export const ChatProvider = ({ children }: { children: ReactNode }) => {
         { event: "INSERT", schema: "public", table: "messages" },
         (payload) => {
           const newMsg = payload.new as MessageRow;
-          // If viewing this room, add to messages
-          if (activeRoom && newMsg.room_id === activeRoom.id) {
+          const currentActive = activeRoomRef.current;
+          if (currentActive && newMsg.room_id === currentActive.id) {
             setMessages((prev) => {
               if (prev.some((m) => m.id === newMsg.id)) return prev;
               return [...prev, newMsg];
             });
+            // Auto-mark as read
+            if (newMsg.sender_id !== user.id) {
+              supabase.from("messages").update({ status: "read" }).eq("id", newMsg.id).then(() => {});
+            }
           }
-          // Update chat rooms list
           setChatRooms((prev) =>
             prev.map((r) =>
               r.id === newMsg.room_id ? { ...r, lastMessage: newMsg } : r
@@ -254,16 +380,22 @@ export const ChatProvider = ({ children }: { children: ReactNode }) => {
           );
         }
       )
+      .on(
+        "postgres_changes",
+        { event: "UPDATE", schema: "public", table: "messages" },
+        (payload) => {
+          const updated = payload.new as MessageRow;
+          setMessages(prev => prev.map(m => m.id === updated.id ? { ...m, status: updated.status } : m));
+        }
+      )
       .subscribe();
 
-    return () => {
-      supabase.removeChannel(channel);
-    };
-  }, [user, activeRoom]);
+    return () => { supabase.removeChannel(channel); };
+  }, [user]);
 
   return (
     <ChatContext.Provider
-      value={{ chatRooms, activeRoom, messages, profiles, loading, loadChatRooms, selectRoom, sendMessage, startChat, searchUsers }}
+      value={{ chatRooms, activeRoom, messages, profiles, loading, typingUsers, onlineUsers, loadChatRooms, selectRoom, sendMessage, startChat, searchUsers, setTyping, markAsRead }}
     >
       {children}
     </ChatContext.Provider>

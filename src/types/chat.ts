@@ -2,6 +2,7 @@ export interface Profile {
   id: string;
   username: string;
   avatar_url: string | null;
+  last_seen?: string;
 }
 
 export interface ChatRoom {
@@ -10,7 +11,6 @@ export interface ChatRoom {
   type: string;
   created_by: string | null;
   created_at: string;
-  // Joined client-side
   participants: Profile[];
   lastMessage?: MessageRow;
   unreadCount: number;
@@ -22,6 +22,19 @@ export interface MessageRow {
   sender_id: string;
   content: string;
   created_at: string;
-  // Joined client-side
+  status: string;
+  file_url?: string | null;
+  file_name?: string | null;
+  file_type?: string | null;
   sender?: Profile;
+}
+
+export interface CallSignal {
+  id: string;
+  room_id: string;
+  caller_id: string;
+  callee_id: string;
+  type: string;
+  payload: any;
+  created_at: string;
 }
