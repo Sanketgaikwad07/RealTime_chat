@@ -1,4 +1,4 @@
-import { useRef, useEffect, useState, useCallback } from "react";
+import { useRef, useEffect, useState } from "react";
 import { useChat } from "@/context/ChatContext";
 import { useAuth } from "@/context/AuthContext";
 import ChatAvatar from "./Avatar";
@@ -90,10 +90,10 @@ const MessageArea = ({ onBack }: MessageAreaProps) => {
           animate={{ opacity: 1, scale: 1 }}
           className="text-center"
         >
-          <div className="w-20 h-20 rounded-full bg-gradient-to-br from-primary/20 to-accent flex items-center justify-center mx-auto mb-4">
-            <Send className="h-8 w-8 text-primary" />
+          <div className="w-20 h-20 rounded-2xl bg-accent flex items-center justify-center mx-auto mb-5">
+            <Send className="h-8 w-8 text-muted-foreground" />
           </div>
-          <h2 className="text-xl font-semibold text-foreground mb-2">Your Messages</h2>
+          <h2 className="text-xl font-bold text-foreground mb-2">Your Messages</h2>
           <p className="text-muted-foreground text-sm">Select a conversation to start chatting</p>
         </motion.div>
       </div>
@@ -119,35 +119,35 @@ const MessageArea = ({ onBack }: MessageAreaProps) => {
       />
 
       {/* Header */}
-      <div className="flex items-center gap-3 px-4 py-3 border-b border-border bg-card shadow-sm">
+      <div className="flex items-center gap-3 px-5 py-3.5 border-b border-border bg-card">
         {onBack && (
-          <button onClick={onBack} className="p-1.5 rounded-lg hover:bg-accent transition-colors md:hidden">
+          <button onClick={onBack} className="p-2 rounded-xl hover:bg-accent transition-colors md:hidden">
             <ArrowLeft className="h-5 w-5 text-foreground" />
           </button>
         )}
         {otherUser && <ChatAvatar user={otherUser} size="md" showStatus isOnline={isOtherOnline} />}
         <div className="flex-1 min-w-0">
-          <h2 className="font-semibold text-foreground text-sm">{displayName}</h2>
-          <p className="text-xs text-muted-foreground">
+          <h2 className="font-bold text-foreground text-sm tracking-tight">{displayName}</h2>
+          <p className="text-xs text-muted-foreground mt-0.5">
             {typingUsernames.length > 0 ? (
-              <span className="text-primary">typing...</span>
+              <span className="text-primary font-medium">typing...</span>
             ) : isOtherOnline ? (
-              <span className="text-online">Online</span>
+              <span className="text-online font-medium">Online</span>
             ) : (
               "Offline"
             )}
           </p>
         </div>
-        <div className="flex items-center gap-1">
+        <div className="flex items-center gap-0.5">
           <button
             onClick={() => otherUser && activeRoom && startCall(activeRoom.id, otherUser.id, "audio")}
-            className="p-2 rounded-lg hover:bg-accent transition-colors text-muted-foreground hover:text-foreground"
+            className="p-2.5 rounded-xl hover:bg-accent transition-colors text-muted-foreground hover:text-foreground"
           >
             <Phone className="h-5 w-5" />
           </button>
           <button
             onClick={() => otherUser && activeRoom && startCall(activeRoom.id, otherUser.id, "video")}
-            className="p-2 rounded-lg hover:bg-accent transition-colors text-muted-foreground hover:text-foreground"
+            className="p-2.5 rounded-xl hover:bg-accent transition-colors text-muted-foreground hover:text-foreground"
           >
             <Video className="h-5 w-5" />
           </button>
@@ -155,7 +155,7 @@ const MessageArea = ({ onBack }: MessageAreaProps) => {
       </div>
 
       {/* Messages */}
-      <div className="flex-1 overflow-y-auto scrollbar-thin px-4 py-4 space-y-1">
+      <div className="flex-1 overflow-y-auto scrollbar-thin px-4 py-5 space-y-1">
         {loading ? (
           <div className="flex items-center justify-center h-full">
             <div className="w-6 h-6 border-2 border-primary border-t-transparent rounded-full animate-spin" />
@@ -179,8 +179,8 @@ const MessageArea = ({ onBack }: MessageAreaProps) => {
                     transition={{ duration: 0.2 }}
                   >
                     {showTime && (
-                      <div className="text-center my-3">
-                        <span className="text-xs text-muted-foreground bg-accent px-3 py-1 rounded-full">
+                      <div className="text-center my-4">
+                        <span className="text-[11px] text-muted-foreground bg-accent px-3 py-1 rounded-full font-medium">
                           {format(new Date(msg.created_at), "h:mm a")}
                         </span>
                       </div>
@@ -194,8 +194,8 @@ const MessageArea = ({ onBack }: MessageAreaProps) => {
                       <div
                         className={`max-w-[75%] px-4 py-2.5 text-sm leading-relaxed ${
                           isMine
-                            ? "bg-chat-sent text-chat-sent-foreground rounded-2xl rounded-br-md"
-                            : "bg-chat-received text-chat-received-foreground rounded-2xl rounded-bl-md shadow-sm"
+                            ? "bg-chat-sent text-chat-sent-foreground rounded-2xl rounded-br-sm"
+                            : "bg-chat-received text-chat-received-foreground rounded-2xl rounded-bl-sm"
                         }`}
                       >
                         {msg.file_url && msg.file_name && msg.file_type && (
@@ -237,16 +237,16 @@ const MessageArea = ({ onBack }: MessageAreaProps) => {
 
       {/* File preview bar */}
       {selectedFile && (
-        <div className="px-4 py-2 border-t border-border bg-accent/50 flex items-center gap-3">
+        <div className="px-5 py-3 border-t border-border bg-accent/30 flex items-center gap-3">
           {filePreviewUrl ? (
-            <img src={filePreviewUrl} alt="preview" className="h-12 w-12 rounded-lg object-cover" />
+            <img src={filePreviewUrl} alt="preview" className="h-12 w-12 rounded-xl object-cover" />
           ) : (
-            <div className="h-12 w-12 rounded-lg bg-primary/10 flex items-center justify-center">
+            <div className="h-12 w-12 rounded-xl bg-primary/10 flex items-center justify-center">
               <Paperclip className="h-5 w-5 text-primary" />
             </div>
           )}
           <span className="text-sm text-foreground truncate flex-1">{selectedFile.name}</span>
-          <button onClick={() => { setSelectedFile(null); setFilePreviewUrl(null); }} className="p-1 rounded hover:bg-accent">
+          <button onClick={() => { setSelectedFile(null); setFilePreviewUrl(null); }} className="p-1.5 rounded-lg hover:bg-accent transition-colors">
             <X className="h-4 w-4 text-muted-foreground" />
           </button>
         </div>
@@ -267,13 +267,13 @@ const MessageArea = ({ onBack }: MessageAreaProps) => {
           />
           <button
             onClick={() => fileInputRef.current?.click()}
-            className="p-2 rounded-lg hover:bg-accent transition-colors text-muted-foreground"
+            className="p-2.5 rounded-xl hover:bg-accent transition-colors text-muted-foreground hover:text-foreground"
           >
             <Paperclip className="h-5 w-5" />
           </button>
           <button
             onClick={() => setShowEmoji(!showEmoji)}
-            className="p-2 rounded-lg hover:bg-accent transition-colors text-muted-foreground"
+            className="p-2.5 rounded-xl hover:bg-accent transition-colors text-muted-foreground hover:text-foreground"
           >
             <Smile className="h-5 w-5" />
           </button>
@@ -284,7 +284,7 @@ const MessageArea = ({ onBack }: MessageAreaProps) => {
             value={input}
             onChange={handleInputChange}
             onKeyDown={handleKeyDown}
-            className="flex-1 px-4 py-2.5 rounded-xl bg-accent text-foreground placeholder:text-muted-foreground text-sm outline-none focus:ring-2 focus:ring-ring transition-all"
+            className="flex-1 px-4 py-2.5 rounded-xl bg-background border border-border text-foreground placeholder:text-muted-foreground text-sm outline-none focus:ring-2 focus:ring-ring focus:border-transparent transition-all"
           />
           <button
             onClick={handleSend}
