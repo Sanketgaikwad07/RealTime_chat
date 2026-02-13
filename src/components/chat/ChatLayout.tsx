@@ -7,7 +7,6 @@ const ChatLayout = () => {
   const { activeRoom } = useChat();
   const [mobileShowChat, setMobileShowChat] = useState(false);
 
-  // On mobile, selecting a room shows the chat area
   const handleBack = () => setMobileShowChat(false);
 
   return (
@@ -16,7 +15,7 @@ const ChatLayout = () => {
       <div
         className={`${
           mobileShowChat && activeRoom ? "hidden md:flex" : "flex"
-        } w-full md:w-80 lg:w-96 flex-col border-r border-border shrink-0`}
+        } w-full md:w-[340px] lg:w-[380px] flex-col border-r border-border shrink-0`}
         onClick={() => setMobileShowChat(true)}
       >
         <ConversationList />

@@ -1,11 +1,18 @@
-import { useRef, useEffect, lazy, Suspense } from "react";
-
-const Picker = lazy(() => import("@emoji-mart/react"));
+import { useRef, useEffect, useState } from "react";
 
 interface EmojiPickerProps {
   onSelect: (emoji: string) => void;
   onClose: () => void;
 }
+
+const EMOJI_LIST = [
+  "😀", "😂", "🥹", "😍", "🤩", "😎", "🥳", "😇",
+  "🤔", "😅", "😊", "🙂", "😉", "😌", "😏", "🤗",
+  "❤️", "🔥", "👍", "👎", "👏", "🙌", "✨", "💯",
+  "😢", "😭", "😤", "🤯", "🫡", "🫶", "💀", "🤡",
+  "🎉", "🎊", "🎈", "🥂", "☕", "🍕", "🌟", "⭐",
+  "👋", "✌️", "🤞", "🤙", "💪", "🫂", "🙏", "💕",
+];
 
 const EmojiPicker = ({ onSelect, onClose }: EmojiPickerProps) => {
   const ref = useRef<HTMLDivElement>(null);
@@ -21,17 +28,18 @@ const EmojiPicker = ({ onSelect, onClose }: EmojiPickerProps) => {
   }, [onClose]);
 
   return (
-    <div ref={ref} className="absolute bottom-full mb-2 right-0 z-50 shadow-xl rounded-xl overflow-hidden">
-      <Suspense fallback={<div className="p-4 bg-card text-muted-foreground text-sm">Loading emojis...</div>}>
-        <Picker
-          onEmojiSelect={(emoji: any) => onSelect(emoji.native)}
-          theme="auto"
-          previewPosition="none"
-          skinTonePosition="none"
-          maxFrequentRows={2}
-          perLine={8}
-        />
-      </Suspense>
+    <div ref={ref} className="absolute bottom-full mb-2 right-0 z-50 shadow-xl rounded-xl overflow-hidden bg-card border border-border p-3 w-[280px]">
+      <div className="grid grid-cols-8 gap-1">
+        {EMOJI_LIST.map((emoji) => (
+          <button
+            key={emoji}
+            onClick={() => onSelect(emoji)}
+            className="p-1.5 rounded-lg hover:bg-accent transition-colors text-lg leading-none"
+          >
+            {emoji}
+          </button>
+        ))}
+      </div>
     </div>
   );
 };

@@ -34,27 +34,27 @@ const Login = () => {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-primary/10 via-background to-accent/20 px-4">
+    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-primary/5 via-background to-accent/10 px-4">
       <motion.div
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.5 }}
-        className="w-full max-w-sm"
+        className="w-full max-w-[400px]"
       >
-        <div className="text-center mb-8">
+        <div className="text-center mb-10">
           <motion.div
             initial={{ scale: 0 }}
             animate={{ scale: 1 }}
             transition={{ type: "spring", stiffness: 200, delay: 0.2 }}
-            className="w-16 h-16 rounded-2xl bg-gradient-to-br from-primary to-primary/80 flex items-center justify-center mx-auto mb-4 shadow-lg shadow-primary/30"
+            className="w-16 h-16 rounded-2xl bg-primary flex items-center justify-center mx-auto mb-5 shadow-lg"
           >
             <MessageSquare className="h-8 w-8 text-primary-foreground" />
           </motion.div>
-          <h1 className="text-2xl font-bold text-foreground">
+          <h1 className="text-3xl font-bold text-foreground tracking-tight">
             {isLogin ? "Welcome back" : "Create account"}
           </h1>
-          <p className="text-sm text-muted-foreground mt-1">
-            {isLogin ? "Sign in to continue chatting" : "Join the conversation"}
+          <p className="text-muted-foreground mt-2">
+            {isLogin ? "Sign in to continue chatting" : "Join the conversation today"}
           </p>
         </div>
 
@@ -62,63 +62,66 @@ const Login = () => {
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           transition={{ delay: 0.3 }}
-          className="bg-card rounded-2xl p-6 shadow-xl shadow-foreground/5 border border-border"
+          className="bg-card rounded-2xl p-8 shadow-xl border border-border"
         >
-          <form onSubmit={handleSubmit} className="space-y-4">
+          <form onSubmit={handleSubmit} className="space-y-5">
             {!isLogin && (
               <div>
+                <label className="text-sm font-medium text-foreground mb-1.5 block">Username</label>
                 <div className="relative">
-                  <User className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                  <User className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                   <input
                     type="text"
-                    placeholder="Username"
+                    placeholder="Choose a username"
                     value={username}
                     onChange={(e) => setUsername(e.target.value)}
-                    className="w-full pl-10 pr-4 py-3 rounded-xl bg-accent/50 border border-border text-foreground placeholder:text-muted-foreground text-sm outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary transition-all"
+                    className="w-full pl-11 pr-4 py-3 rounded-xl bg-background border border-border text-foreground placeholder:text-muted-foreground text-sm outline-none focus:ring-2 focus:ring-ring focus:border-transparent transition-all"
                   />
                 </div>
                 {validationErrors.username && (
-                  <p className="text-destructive text-xs mt-1">{validationErrors.username}</p>
+                  <p className="text-destructive text-xs mt-1.5">{validationErrors.username}</p>
                 )}
               </div>
             )}
 
             <div>
+              <label className="text-sm font-medium text-foreground mb-1.5 block">Email</label>
               <div className="relative">
-                <Mail className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                <Mail className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                 <input
                   type="email"
-                  placeholder="Email"
+                  placeholder="you@example.com"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  className="w-full pl-10 pr-4 py-3 rounded-xl bg-accent/50 border border-border text-foreground placeholder:text-muted-foreground text-sm outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary transition-all"
+                  className="w-full pl-11 pr-4 py-3 rounded-xl bg-background border border-border text-foreground placeholder:text-muted-foreground text-sm outline-none focus:ring-2 focus:ring-ring focus:border-transparent transition-all"
                 />
               </div>
               {validationErrors.email && (
-                <p className="text-destructive text-xs mt-1">{validationErrors.email}</p>
+                <p className="text-destructive text-xs mt-1.5">{validationErrors.email}</p>
               )}
             </div>
 
             <div>
+              <label className="text-sm font-medium text-foreground mb-1.5 block">Password</label>
               <div className="relative">
-                <Lock className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                 <input
                   type={showPassword ? "text" : "password"}
-                  placeholder="Password"
+                  placeholder="••••••••"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  className="w-full pl-10 pr-12 py-3 rounded-xl bg-accent/50 border border-border text-foreground placeholder:text-muted-foreground text-sm outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary transition-all"
+                  className="w-full pl-11 pr-12 py-3 rounded-xl bg-background border border-border text-foreground placeholder:text-muted-foreground text-sm outline-none focus:ring-2 focus:ring-ring focus:border-transparent transition-all"
                 />
                 <button
                   type="button"
                   onClick={() => setShowPassword(!showPassword)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+                  className="absolute right-3.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
                 >
                   {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                 </button>
               </div>
               {validationErrors.password && (
-                <p className="text-destructive text-xs mt-1">{validationErrors.password}</p>
+                <p className="text-destructive text-xs mt-1.5">{validationErrors.password}</p>
               )}
             </div>
 
@@ -126,7 +129,7 @@ const Login = () => {
               <motion.p
                 initial={{ opacity: 0, x: -10 }}
                 animate={{ opacity: 1, x: 0 }}
-                className="text-destructive text-xs text-center bg-destructive/10 rounded-lg py-2"
+                className="text-destructive text-sm text-center bg-destructive/10 rounded-xl py-2.5 px-3"
               >
                 {error}
               </motion.p>
@@ -135,7 +138,7 @@ const Login = () => {
             <button
               type="submit"
               disabled={loading}
-              className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl bg-gradient-to-r from-primary to-primary/90 text-primary-foreground font-medium text-sm hover:shadow-lg hover:shadow-primary/25 transition-all disabled:opacity-50 active:scale-[0.98]"
+              className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl bg-primary text-primary-foreground font-semibold text-sm hover:opacity-90 transition-all disabled:opacity-50 active:scale-[0.98] shadow-md"
             >
               {loading ? (
                 <Loader2 className="h-4 w-4 animate-spin" />
@@ -149,11 +152,11 @@ const Login = () => {
           </form>
         </motion.div>
 
-        <p className="text-center text-sm text-muted-foreground mt-6">
+        <p className="text-center text-sm text-muted-foreground mt-8">
           {isLogin ? "Don't have an account?" : "Already have an account?"}{" "}
           <button
-            onClick={() => { setIsLogin(!isLogin); setValidationErrors({}); }}
-            className="text-primary font-medium hover:underline"
+            onClick={() => { setIsLogin(!isLogin); setValidationErrors({}); setPassword(""); }}
+            className="text-primary font-semibold hover:underline"
           >
             {isLogin ? "Sign up" : "Sign in"}
           </button>
