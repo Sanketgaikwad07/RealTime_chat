@@ -3,13 +3,15 @@ import { useChat } from "@/context/ChatContext";
 import { useAuth } from "@/context/AuthContext";
 import ChatAvatar from "./Avatar";
 import { formatDistanceToNow } from "date-fns";
-import { Search, LogOut, MessageSquarePlus, X, CheckCheck, Check } from "lucide-react";
+import { Search, LogOut, MessageSquarePlus, X, CheckCheck, Check, Sun, Moon } from "lucide-react";
 import { Profile } from "@/types/chat";
 import { motion, AnimatePresence } from "framer-motion";
+import { useTheme } from "@/hooks/useTheme";
 
 const ConversationList = () => {
   const { chatRooms, activeRoom, loadChatRooms, selectRoom, startChat, searchUsers, onlineUsers } = useChat();
   const { profile, logout } = useAuth();
+  const { theme, toggleTheme } = useTheme();
   const [search, setSearch] = useState("");
   const [showNewChat, setShowNewChat] = useState(false);
   const [userSearch, setUserSearch] = useState("");
@@ -68,6 +70,13 @@ const ConversationList = () => {
             </div>
           </div>
           <div className="flex items-center gap-1">
+            <button
+              onClick={toggleTheme}
+              className="p-2.5 rounded-xl hover:bg-accent transition-colors text-muted-foreground hover:text-foreground"
+              title={theme === "dark" ? "Light mode" : "Dark mode"}
+            >
+              {theme === "dark" ? <Sun className="h-5 w-5" /> : <Moon className="h-5 w-5" />}
+            </button>
             <button
               onClick={() => setShowNewChat(!showNewChat)}
               className="p-2.5 rounded-xl hover:bg-accent transition-colors text-muted-foreground hover:text-foreground"

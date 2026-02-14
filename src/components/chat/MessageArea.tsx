@@ -105,7 +105,7 @@ const MessageArea = ({ onBack }: MessageAreaProps) => {
   const typingUsernames = Object.values(typingUsers);
 
   return (
-    <div className="flex-1 flex flex-col bg-background h-full">
+    <div className="flex-1 flex flex-col bg-background h-[100dvh] md:h-full"  >
       {/* Call UI */}
       <CallUI
         callState={callState}
@@ -253,7 +253,7 @@ const MessageArea = ({ onBack }: MessageAreaProps) => {
       )}
 
       {/* Input */}
-      <div className="px-4 py-3 border-t border-border bg-card relative">
+      <div className="px-4 py-3 pb-safe border-t border-border bg-card relative">
         {showEmoji && (
           <EmojiPicker onSelect={handleEmojiSelect} onClose={() => setShowEmoji(false)} />
         )}
