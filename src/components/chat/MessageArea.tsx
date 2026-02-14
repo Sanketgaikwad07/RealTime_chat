@@ -160,6 +160,20 @@ const MessageArea = ({ onBack }: MessageAreaProps) => {
           <div className="flex items-center justify-center h-full">
             <div className="w-6 h-6 border-2 border-primary border-t-transparent rounded-full animate-spin" />
           </div>
+        ) : messages.length === 0 ? (
+          <div className="flex items-center justify-center h-full">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.9 }}
+              animate={{ opacity: 1, scale: 1 }}
+              className="text-center"
+            >
+              <div className="w-16 h-16 rounded-2xl bg-accent flex items-center justify-center mx-auto mb-4">
+                <Send className="h-7 w-7 text-muted-foreground" />
+              </div>
+              <p className="text-sm font-medium text-foreground">No messages yet</p>
+              <p className="text-xs text-muted-foreground mt-1">Send a message to start the conversation</p>
+            </motion.div>
+          </div>
         ) : (
           <>
             <AnimatePresence initial={false}>

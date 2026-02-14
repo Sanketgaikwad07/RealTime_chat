@@ -9,7 +9,7 @@ interface ChatContextType {
   messages: MessageRow[];
   profiles: Record<string, Profile>;
   loading: boolean;
-  typingUsers: Record<string, string>; // userId -> username
+  typingUsers: Record<string, string>;
   onlineUsers: Set<string>;
   loadChatRooms: () => Promise<void>;
   selectRoom: (room: ChatRoom) => Promise<void>;
@@ -40,24 +40,34 @@ export const ChatProvider = ({ children }: { children: ReactNode }) => {
   const typingTimeoutRef = useRef<Record<string, NodeJS.Timeout>>({});
   const presenceChannelRef = useRef<any>(null);
   const activeRoomRef = useRef<ChatRoom | null>(null);
+  const profilesRef = useRef<Record<string, Profile>>({});
 
+  // Keep refs in sync
   useEffect(() => {
     activeRoomRef.current = activeRoom;
   }, [activeRoom]);
 
-  // Cache profiles
-  const fetchProfiles = useCallback(async (userIds: string[]) => {
-    const missing = userIds.filter((id) => !profiles[id]);
-    if (missing.length === 0) return profiles;
+  useEffect(() => {
+    profilesRef.current = profiles;
+  }, [profiles]);
+
+  // Fetch and cache profiles using ref to avoid stale closures
+  const fetchProfiles = useCallback(async (userIds: string[]): Promise<Record<string, Profile>> => {
+    const current = profilesRef.current;
+    const missing = userIds.filter((id) => !current[id]);
+    if (missing.length === 0) return current;
+
     const { data } = await supabase
       .from("profiles")
       .select("id, username, avatar_url, last_seen")
       .in("id", missing);
-    const updated = { ...profiles };
+
+    const updated = { ...current };
     data?.forEach((p: any) => (updated[p.id] = p));
+    profilesRef.current = updated;
     setProfiles(updated);
     return updated;
-  }, [profiles]);
+  }, []);
 
   // Update last_seen periodically
   useEffect(() => {
@@ -159,23 +169,32 @@ export const ChatProvider = ({ children }: { children: ReactNode }) => {
 
   const selectRoom = useCallback(async (room: ChatRoom) => {
     setActiveRoom(room);
+    setMessages([]);
     setLoading(true);
     setTypingUsers({});
-    const { data } = await supabase
+
+    const { data, error } = await supabase
       .from("messages")
       .select("*")
       .eq("room_id", room.id)
       .order("created_at", { ascending: true });
 
-    const senderIds = [...new Set(data?.map((m) => m.sender_id) || [])];
+    if (error) {
+      console.error("Failed to load messages:", error);
+      setLoading(false);
+      return;
+    }
+
+    const msgs = data || [];
+    const senderIds = [...new Set(msgs.map((m) => m.sender_id))];
     await fetchProfiles(senderIds);
 
-    setMessages(data || []);
+    setMessages(msgs);
     setLoading(false);
 
     // Mark unread messages as read
-    if (data && user) {
-      const unread = data.filter(m => m.sender_id !== user.id && m.status !== "read");
+    if (msgs.length > 0 && user) {
+      const unread = msgs.filter(m => m.sender_id !== user.id && m.status !== "read");
       if (unread.length > 0) {
         await supabase
           .from("messages")
@@ -186,7 +205,8 @@ export const ChatProvider = ({ children }: { children: ReactNode }) => {
   }, [fetchProfiles, user]);
 
   const sendMessage = useCallback(async (content: string, file?: File) => {
-    if (!activeRoom || !user) return;
+    const currentRoom = activeRoomRef.current;
+    if (!currentRoom || !user) return;
 
     let fileUrl: string | null = null;
     let fileName: string | null = null;
@@ -208,7 +228,7 @@ export const ChatProvider = ({ children }: { children: ReactNode }) => {
     }
 
     const { error } = await supabase.from("messages").insert({
-      room_id: activeRoom.id,
+      room_id: currentRoom.id,
       sender_id: user.id,
       content: content || (fileName ? `Sent a file: ${fileName}` : ""),
       file_url: fileUrl,
@@ -216,7 +236,7 @@ export const ChatProvider = ({ children }: { children: ReactNode }) => {
       file_type: fileType,
     });
     if (error) console.error("Send error:", error);
-  }, [activeRoom, user]);
+  }, [user]);
 
   const markAsRead = useCallback(async (messageIds: string[]) => {
     if (messageIds.length === 0) return;
@@ -226,6 +246,7 @@ export const ChatProvider = ({ children }: { children: ReactNode }) => {
   const startChat = useCallback(async (otherUserId: string): Promise<ChatRoom | null> => {
     if (!user) return null;
 
+    // Check for existing private room
     const { data: myRooms } = await supabase
       .from("room_memberships")
       .select("room_id")
@@ -261,18 +282,28 @@ export const ChatProvider = ({ children }: { children: ReactNode }) => {
       }
     }
 
+    // Create new room
     const { data: newRoom, error: roomErr } = await supabase
       .from("chat_rooms")
       .insert({ type: "private", created_by: user.id })
       .select()
       .single();
 
-    if (roomErr || !newRoom) return null;
+    if (roomErr || !newRoom) {
+      console.error("Failed to create room:", roomErr);
+      return null;
+    }
 
-    await supabase.from("room_memberships").insert([
+    // Insert both memberships
+    const { error: memberErr } = await supabase.from("room_memberships").insert([
       { room_id: newRoom.id, user_id: user.id },
       { room_id: newRoom.id, user_id: otherUserId },
     ]);
+
+    if (memberErr) {
+      console.error("Failed to add memberships:", memberErr);
+      return null;
+    }
 
     const profileMap = await fetchProfiles([user.id, otherUserId]);
     const chatRoom: ChatRoom = {
@@ -298,20 +329,20 @@ export const ChatProvider = ({ children }: { children: ReactNode }) => {
 
   // Typing indicator via broadcast
   const setTyping = useCallback((isTyping: boolean) => {
-    if (!activeRoom || !user) return;
-    const channel = supabase.channel(`typing:${activeRoom.id}`);
+    const currentRoom = activeRoomRef.current;
+    if (!currentRoom || !user) return;
+    const channel = supabase.channel(`typing:${currentRoom.id}`);
     channel.subscribe((status) => {
       if (status === "SUBSCRIBED") {
         channel.send({
           type: "broadcast",
           event: "typing",
-          payload: { userId: user.id, username: profiles[user.id]?.username || "Someone", isTyping },
+          payload: { userId: user.id, username: profilesRef.current[user.id]?.username || "Someone", isTyping },
         });
-        // Unsubscribe after sending
         setTimeout(() => supabase.removeChannel(channel), 100);
       }
     });
-  }, [activeRoom, user, profiles]);
+  }, [user]);
 
   // Listen for typing in active room
   useEffect(() => {
@@ -325,7 +356,6 @@ export const ChatProvider = ({ children }: { children: ReactNode }) => {
 
         if (isTyping) {
           setTypingUsers(prev => ({ ...prev, [userId]: username }));
-          // Clear after 3s
           if (typingTimeoutRef.current[userId]) clearTimeout(typingTimeoutRef.current[userId]);
           typingTimeoutRef.current[userId] = setTimeout(() => {
             setTypingUsers(prev => {
@@ -369,6 +399,7 @@ export const ChatProvider = ({ children }: { children: ReactNode }) => {
               supabase.from("messages").update({ status: "read" }).eq("id", newMsg.id).then(() => {});
             }
           }
+          // Update last message in room list
           setChatRooms((prev) =>
             prev.map((r) =>
               r.id === newMsg.room_id ? { ...r, lastMessage: newMsg } : r
