@@ -82,6 +82,15 @@ const MessageArea = ({ onBack }: MessageAreaProps) => {
   const otherUser = activeRoom?.participants.find((p) => p.id !== user?.id) || activeRoom?.participants[0];
   const remoteProfile = remoteUserId ? profiles[remoteUserId] : null;
 
+  const getLastSeenText = (u: typeof otherUser) => {
+    if (!u?.last_seen) return "Offline";
+    try {
+      return `Last seen ${format(new Date(u.last_seen), "MMM d, h:mm a")}`;
+    } catch {
+      return "Offline";
+    }
+  };
+
   if (!activeRoom) {
     return (
       <div className="flex-1 flex items-center justify-center bg-background">
@@ -134,7 +143,7 @@ const MessageArea = ({ onBack }: MessageAreaProps) => {
             ) : isOtherOnline ? (
               <span className="text-online font-medium">Online</span>
             ) : (
-              "Offline"
+              getLastSeenText(otherUser)
             )}
           </p>
         </div>
