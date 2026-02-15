@@ -149,11 +149,19 @@ export const ChatProvider = ({ children }: { children: ReactNode }) => {
         .order("created_at", { ascending: false })
         .limit(1);
 
+      // Count unread messages
+      const { count } = await supabase
+        .from("messages")
+        .select("*", { count: "exact", head: true })
+        .eq("room_id", room.id)
+        .neq("sender_id", user.id)
+        .neq("status", "read");
+
       chatRoomList.push({
         ...room,
         participants,
         lastMessage: lastMsgArr?.[0] || undefined,
-        unreadCount: 0,
+        unreadCount: count || 0,
       });
     }
 
@@ -187,7 +195,9 @@ export const ChatProvider = ({ children }: { children: ReactNode }) => {
 
     const msgs = data || [];
     const senderIds = [...new Set(msgs.map((m) => m.sender_id))];
-    await fetchProfiles(senderIds);
+    if (senderIds.length > 0) {
+      await fetchProfiles(senderIds);
+    }
 
     setMessages(msgs);
     setLoading(false);
@@ -227,15 +237,40 @@ export const ChatProvider = ({ children }: { children: ReactNode }) => {
       }
     }
 
-    const { error } = await supabase.from("messages").insert({
+    const msgContent = content || (fileName ? `Sent a file: ${fileName}` : "");
+
+    // Optimistically add message to UI
+    const optimisticMsg: MessageRow = {
+      id: crypto.randomUUID(),
       room_id: currentRoom.id,
       sender_id: user.id,
-      content: content || (fileName ? `Sent a file: ${fileName}` : ""),
+      content: msgContent,
+      created_at: new Date().toISOString(),
+      status: "sent",
       file_url: fileUrl,
       file_name: fileName,
       file_type: fileType,
-    });
-    if (error) console.error("Send error:", error);
+    };
+
+    setMessages((prev) => [...prev, optimisticMsg]);
+
+    const { data, error } = await supabase.from("messages").insert({
+      room_id: currentRoom.id,
+      sender_id: user.id,
+      content: msgContent,
+      file_url: fileUrl,
+      file_name: fileName,
+      file_type: fileType,
+    }).select().single();
+
+    if (error) {
+      console.error("Send error:", error);
+      // Remove optimistic message on failure
+      setMessages((prev) => prev.filter((m) => m.id !== optimisticMsg.id));
+    } else if (data) {
+      // Replace optimistic message with real one
+      setMessages((prev) => prev.map((m) => m.id === optimisticMsg.id ? data : m));
+    }
   }, [user]);
 
   const markAsRead = useCallback(async (messageIds: string[]) => {
@@ -282,7 +317,7 @@ export const ChatProvider = ({ children }: { children: ReactNode }) => {
       }
     }
 
-    // Create new room
+    // Create new room — insert without .select() to avoid SELECT RLS timing issue
     const { data: newRoom, error: roomErr } = await supabase
       .from("chat_rooms")
       .insert({ type: "private", created_by: user.id })
@@ -386,15 +421,21 @@ export const ChatProvider = ({ children }: { children: ReactNode }) => {
       .on(
         "postgres_changes",
         { event: "INSERT", schema: "public", table: "messages" },
-        (payload) => {
+        async (payload) => {
           const newMsg = payload.new as MessageRow;
           const currentActive = activeRoomRef.current;
+
+          // Fetch sender profile if not cached
+          if (!profilesRef.current[newMsg.sender_id]) {
+            await fetchProfiles([newMsg.sender_id]);
+          }
+
           if (currentActive && newMsg.room_id === currentActive.id) {
             setMessages((prev) => {
               if (prev.some((m) => m.id === newMsg.id)) return prev;
               return [...prev, newMsg];
             });
-            // Auto-mark as read
+            // Auto-mark as read if from other user
             if (newMsg.sender_id !== user.id) {
               supabase.from("messages").update({ status: "read" }).eq("id", newMsg.id).then(() => {});
             }
@@ -422,7 +463,7 @@ export const ChatProvider = ({ children }: { children: ReactNode }) => {
       .subscribe();
 
     return () => { supabase.removeChannel(channel); };
-  }, [user]);
+  }, [user, fetchProfiles]);
 
   return (
     <ChatContext.Provider
