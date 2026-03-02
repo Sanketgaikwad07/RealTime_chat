@@ -3,6 +3,7 @@ export interface Profile {
   username: string;
   avatar_url: string | null;
   last_seen?: string;
+  bio?: string | null;
 }
 
 export interface ChatRoom {

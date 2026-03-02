@@ -2,8 +2,9 @@ import { useEffect, useState } from "react";
 import { useChat } from "@/context/ChatContext";
 import { useAuth } from "@/context/AuthContext";
 import ChatAvatar from "./Avatar";
+import ProfileModal from "./ProfileModal";
 import { formatDistanceToNow } from "date-fns";
-import { Search, LogOut, MessageSquarePlus, X, CheckCheck, Check, Sun, Moon } from "lucide-react";
+import { Search, LogOut, MessageSquarePlus, X, CheckCheck, Check, Sun, Moon, Settings } from "lucide-react";
 import { Profile } from "@/types/chat";
 import { motion, AnimatePresence } from "framer-motion";
 import { useTheme } from "@/hooks/useTheme";
@@ -14,6 +15,7 @@ const ConversationList = () => {
   const { theme, toggleTheme } = useTheme();
   const [search, setSearch] = useState("");
   const [showNewChat, setShowNewChat] = useState(false);
+  const [showProfile, setShowProfile] = useState(false);
   const [userSearch, setUserSearch] = useState("");
   const [userResults, setUserResults] = useState<Profile[]>([]);
   const [searching, setSearching] = useState(false);
@@ -59,34 +61,47 @@ const ConversationList = () => {
 
   return (
     <div className="flex flex-col h-full bg-card">
+      <ProfileModal open={showProfile} onClose={() => setShowProfile(false)} />
+
       {/* Header */}
-      <div className="p-5 border-b border-border">
-        <div className="flex items-center justify-between mb-5">
-          <div className="flex items-center gap-3">
-            {profile && <ChatAvatar user={profile} size="md" showStatus isOnline />}
-            <div>
-              <h1 className="text-lg font-bold text-foreground tracking-tight">Messages</h1>
-              <p className="text-xs text-muted-foreground">{profile?.username}</p>
+      <div className="p-4 sm:p-5 border-b border-border shrink-0">
+        <div className="flex items-center justify-between mb-4 sm:mb-5">
+          <div className="flex items-center gap-3 min-w-0">
+            {profile && (
+              <button onClick={() => setShowProfile(true)} className="shrink-0">
+                <ChatAvatar user={profile} size="md" showStatus isOnline />
+              </button>
+            )}
+            <div className="min-w-0">
+              <h1 className="text-lg font-bold text-foreground tracking-tight truncate">Messages</h1>
+              <p className="text-xs text-muted-foreground truncate">{profile?.username}</p>
             </div>
           </div>
-          <div className="flex items-center gap-1">
+          <div className="flex items-center gap-0.5 shrink-0">
             <button
               onClick={toggleTheme}
-              className="p-2.5 rounded-xl hover:bg-accent transition-colors text-muted-foreground hover:text-foreground"
+              className="p-2 sm:p-2.5 rounded-xl hover:bg-accent transition-colors text-muted-foreground hover:text-foreground"
               title={theme === "dark" ? "Light mode" : "Dark mode"}
             >
               {theme === "dark" ? <Sun className="h-5 w-5" /> : <Moon className="h-5 w-5" />}
             </button>
             <button
+              onClick={() => setShowProfile(true)}
+              className="p-2 sm:p-2.5 rounded-xl hover:bg-accent transition-colors text-muted-foreground hover:text-foreground"
+              title="Profile settings"
+            >
+              <Settings className="h-5 w-5" />
+            </button>
+            <button
               onClick={() => setShowNewChat(!showNewChat)}
-              className="p-2.5 rounded-xl hover:bg-accent transition-colors text-muted-foreground hover:text-foreground"
+              className="p-2 sm:p-2.5 rounded-xl hover:bg-accent transition-colors text-muted-foreground hover:text-foreground"
               title={showNewChat ? "Close" : "New chat"}
             >
               {showNewChat ? <X className="h-5 w-5" /> : <MessageSquarePlus className="h-5 w-5" />}
             </button>
             <button
               onClick={logout}
-              className="p-2.5 rounded-xl hover:bg-accent transition-colors text-muted-foreground hover:text-foreground"
+              className="p-2 sm:p-2.5 rounded-xl hover:bg-accent transition-colors text-muted-foreground hover:text-foreground"
               title="Logout"
             >
               <LogOut className="h-5 w-5" />
@@ -109,7 +124,7 @@ const ConversationList = () => {
 
       {/* User search results */}
       {showNewChat && (
-        <div className="flex-1 overflow-y-auto scrollbar-thin">
+        <div className="flex-1 overflow-y-auto scrollbar-thin min-h-0">
           {searching && (
             <div className="flex justify-center py-6">
               <div className="w-5 h-5 border-2 border-primary border-t-transparent rounded-full animate-spin" />
@@ -123,11 +138,11 @@ const ConversationList = () => {
                 animate={{ opacity: 1, x: 0 }}
                 exit={{ opacity: 0 }}
                 onClick={() => handleStartChat(u)}
-                className="w-full flex items-center gap-3 px-5 py-3.5 text-left hover:bg-accent/60 transition-colors"
+                className="w-full flex items-center gap-3 px-4 sm:px-5 py-3.5 text-left hover:bg-accent/60 transition-colors"
               >
                 <ChatAvatar user={u} size="md" showStatus isOnline={onlineUsers.has(u.id)} />
-                <div>
-                  <span className="font-medium text-sm text-foreground">{u.username}</span>
+                <div className="min-w-0">
+                  <span className="font-medium text-sm text-foreground truncate block">{u.username}</span>
                   <p className="text-xs text-muted-foreground mt-0.5">
                     {onlineUsers.has(u.id) ? <span className="text-online">Online</span> : "Offline"}
                   </p>
@@ -143,7 +158,7 @@ const ConversationList = () => {
 
       {/* Conversation List */}
       {!showNewChat && (
-        <div className="flex-1 overflow-y-auto scrollbar-thin">
+        <div className="flex-1 overflow-y-auto scrollbar-thin min-h-0">
           {filtered.length === 0 && (
             <div className="text-center py-16 px-6">
               <div className="w-14 h-14 rounded-2xl bg-accent flex items-center justify-center mx-auto mb-4">
@@ -166,7 +181,7 @@ const ConversationList = () => {
                   initial={{ opacity: 0 }}
                   animate={{ opacity: 1 }}
                   onClick={() => selectRoom(room)}
-                  className={`w-full flex items-center gap-3.5 px-5 py-3.5 text-left transition-all border-l-[3px] ${
+                  className={`w-full flex items-center gap-3 sm:gap-3.5 px-4 sm:px-5 py-3 sm:py-3.5 text-left transition-all border-l-[3px] ${
                     isActive ? "bg-primary/10 border-l-primary" : "hover:bg-accent/50 border-l-transparent"
                   }`}
                 >
@@ -176,16 +191,25 @@ const ConversationList = () => {
                       <span className={`font-semibold text-sm truncate ${isActive ? "text-primary" : "text-foreground"}`}>
                         {getDisplayName(room)}
                       </span>
-                      {lastMsg && (
-                        <span className="text-[11px] text-muted-foreground shrink-0 ml-2">
-                          {formatDistanceToNow(new Date(lastMsg.created_at), { addSuffix: false })}
-                        </span>
-                      )}
+                      <div className="flex items-center gap-1.5 shrink-0 ml-2">
+                        {room.unreadCount > 0 && (
+                          <span className="bg-primary text-primary-foreground text-[10px] font-bold rounded-full min-w-[18px] h-[18px] flex items-center justify-center px-1">
+                            {room.unreadCount > 99 ? "99+" : room.unreadCount}
+                          </span>
+                        )}
+                        {lastMsg && (
+                          <span className="text-[11px] text-muted-foreground">
+                            {formatDistanceToNow(new Date(lastMsg.created_at), { addSuffix: false })}
+                          </span>
+                        )}
+                      </div>
                     </div>
                     <div className="flex items-center gap-1.5 mt-1">
                       {lastMsg && lastMsg.sender_id === profile?.id && (
                         lastMsg.status === "read" ? (
                           <CheckCheck className="h-3.5 w-3.5 text-primary shrink-0" />
+                        ) : lastMsg.status === "delivered" ? (
+                          <CheckCheck className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
                         ) : (
                           <Check className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
                         )

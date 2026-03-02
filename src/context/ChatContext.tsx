@@ -41,17 +41,15 @@ export const ChatProvider = ({ children }: { children: ReactNode }) => {
   const presenceChannelRef = useRef<any>(null);
   const activeRoomRef = useRef<ChatRoom | null>(null);
   const profilesRef = useRef<Record<string, Profile>>({});
+  const messagesRef = useRef<MessageRow[]>([]);
+  const startChatLockRef = useRef<Set<string>>(new Set());
 
   // Keep refs in sync
-  useEffect(() => {
-    activeRoomRef.current = activeRoom;
-  }, [activeRoom]);
+  useEffect(() => { activeRoomRef.current = activeRoom; }, [activeRoom]);
+  useEffect(() => { profilesRef.current = profiles; }, [profiles]);
+  useEffect(() => { messagesRef.current = messages; }, [messages]);
 
-  useEffect(() => {
-    profilesRef.current = profiles;
-  }, [profiles]);
-
-  // Fetch and cache profiles using ref to avoid stale closures
+  // Fetch and cache profiles
   const fetchProfiles = useCallback(async (userIds: string[]): Promise<Record<string, Profile>> => {
     const current = profilesRef.current;
     const missing = userIds.filter((id) => !current[id]);
@@ -59,7 +57,7 @@ export const ChatProvider = ({ children }: { children: ReactNode }) => {
 
     const { data } = await supabase
       .from("profiles")
-      .select("id, username, avatar_url, last_seen")
+      .select("id, username, avatar_url, last_seen, bio")
       .in("id", missing);
 
     const updated = { ...current };
@@ -67,6 +65,20 @@ export const ChatProvider = ({ children }: { children: ReactNode }) => {
     profilesRef.current = updated;
     setProfiles(updated);
     return updated;
+  }, []);
+
+  // Invalidate a single cached profile (for profile edits)
+  const refreshProfile = useCallback(async (userId: string) => {
+    const { data } = await supabase
+      .from("profiles")
+      .select("id, username, avatar_url, last_seen, bio")
+      .eq("id", userId)
+      .maybeSingle();
+    if (data) {
+      const updated = { ...profilesRef.current, [userId]: data };
+      profilesRef.current = updated;
+      setProfiles(updated);
+    }
   }, []);
 
   // Update last_seen periodically
@@ -107,71 +119,65 @@ export const ChatProvider = ({ children }: { children: ReactNode }) => {
     if (!user) return;
     setLoading(true);
 
-    const { data: memberships } = await supabase
-      .from("room_memberships")
-      .select("room_id")
-      .eq("user_id", user.id);
+    try {
+      const { data: memberships } = await supabase
+        .from("room_memberships")
+        .select("room_id")
+        .eq("user_id", user.id);
 
-    if (!memberships || memberships.length === 0) {
-      setChatRooms([]);
-      setLoading(false);
-      return;
-    }
+      if (!memberships || memberships.length === 0) {
+        setChatRooms([]);
+        setLoading(false);
+        return;
+      }
 
-    const roomIds = memberships.map((m) => m.room_id);
+      const roomIds = memberships.map((m) => m.room_id);
 
-    const { data: rooms } = await supabase
-      .from("chat_rooms")
-      .select("*")
-      .in("id", roomIds);
+      const [roomsRes, allMembershipsRes] = await Promise.all([
+        supabase.from("chat_rooms").select("*").in("id", roomIds),
+        supabase.from("room_memberships").select("room_id, user_id").in("room_id", roomIds),
+      ]);
 
-    if (!rooms) { setChatRooms([]); setLoading(false); return; }
+      const rooms = roomsRes.data;
+      const allMemberships = allMembershipsRes.data;
 
-    const { data: allMemberships } = await supabase
-      .from("room_memberships")
-      .select("room_id, user_id")
-      .in("room_id", roomIds);
+      if (!rooms) { setChatRooms([]); setLoading(false); return; }
 
-    const allUserIds = [...new Set(allMemberships?.map((m) => m.user_id) || [])];
-    const profileMap = await fetchProfiles(allUserIds);
+      const allUserIds = [...new Set(allMemberships?.map((m) => m.user_id) || [])];
+      const profileMap = await fetchProfiles(allUserIds);
 
-    const chatRoomList: ChatRoom[] = [];
-    for (const room of rooms) {
-      const participants = (allMemberships || [])
-        .filter((m) => m.room_id === room.id)
-        .map((m) => profileMap[m.user_id])
-        .filter(Boolean);
+      // Batch: get last message per room + unread counts
+      const chatRoomList: ChatRoom[] = await Promise.all(
+        rooms.map(async (room) => {
+          const participants = (allMemberships || [])
+            .filter((m) => m.room_id === room.id)
+            .map((m) => profileMap[m.user_id])
+            .filter(Boolean);
 
-      const { data: lastMsgArr } = await supabase
-        .from("messages")
-        .select("*")
-        .eq("room_id", room.id)
-        .order("created_at", { ascending: false })
-        .limit(1);
+          const [lastMsgRes, unreadRes] = await Promise.all([
+            supabase.from("messages").select("*").eq("room_id", room.id).order("created_at", { ascending: false }).limit(1),
+            supabase.from("messages").select("*", { count: "exact", head: true }).eq("room_id", room.id).neq("sender_id", user.id).neq("status", "read"),
+          ]);
 
-      // Count unread messages
-      const { count } = await supabase
-        .from("messages")
-        .select("*", { count: "exact", head: true })
-        .eq("room_id", room.id)
-        .neq("sender_id", user.id)
-        .neq("status", "read");
+          return {
+            ...room,
+            participants,
+            lastMessage: lastMsgRes.data?.[0] || undefined,
+            unreadCount: unreadRes.count || 0,
+          };
+        })
+      );
 
-      chatRoomList.push({
-        ...room,
-        participants,
-        lastMessage: lastMsgArr?.[0] || undefined,
-        unreadCount: count || 0,
+      chatRoomList.sort((a, b) => {
+        const ta = a.lastMessage?.created_at || a.created_at;
+        const tb = b.lastMessage?.created_at || b.created_at;
+        return new Date(tb).getTime() - new Date(ta).getTime();
       });
+
+      setChatRooms(chatRoomList);
+    } catch (err) {
+      console.error("Failed to load chat rooms:", err);
     }
-
-    chatRoomList.sort((a, b) => {
-      const ta = a.lastMessage?.created_at || a.created_at;
-      const tb = b.lastMessage?.created_at || b.created_at;
-      return new Date(tb).getTime() - new Date(ta).getTime();
-    });
-
-    setChatRooms(chatRoomList);
     setLoading(false);
   }, [user, fetchProfiles]);
 
@@ -181,42 +187,49 @@ export const ChatProvider = ({ children }: { children: ReactNode }) => {
     setLoading(true);
     setTypingUsers({});
 
-    const { data, error } = await supabase
-      .from("messages")
-      .select("*")
-      .eq("room_id", room.id)
-      .order("created_at", { ascending: true });
+    try {
+      const { data, error } = await supabase
+        .from("messages")
+        .select("*")
+        .eq("room_id", room.id)
+        .order("created_at", { ascending: true });
 
-    if (error) {
-      console.error("Failed to load messages:", error);
-      setLoading(false);
-      return;
-    }
-
-    const msgs = data || [];
-    const senderIds = [...new Set(msgs.map((m) => m.sender_id))];
-    if (senderIds.length > 0) {
-      await fetchProfiles(senderIds);
-    }
-
-    setMessages(msgs);
-    setLoading(false);
-
-    // Mark unread messages as read
-    if (msgs.length > 0 && user) {
-      const unread = msgs.filter(m => m.sender_id !== user.id && m.status !== "read");
-      if (unread.length > 0) {
-        await supabase
-          .from("messages")
-          .update({ status: "read" })
-          .in("id", unread.map(m => m.id));
+      if (error) {
+        console.error("Failed to load messages:", error);
+        setLoading(false);
+        return;
       }
+
+      const msgs = data || [];
+      const senderIds = [...new Set(msgs.map((m) => m.sender_id))];
+      if (senderIds.length > 0) await fetchProfiles(senderIds);
+
+      setMessages(msgs);
+
+      // Mark unread messages as read
+      if (msgs.length > 0 && user) {
+        const unread = msgs.filter(m => m.sender_id !== user.id && m.status !== "read");
+        if (unread.length > 0) {
+          await supabase
+            .from("messages")
+            .update({ status: "read" })
+            .in("id", unread.map(m => m.id));
+          // Update local state too
+          setMessages(prev => prev.map(m => 
+            unread.some(u => u.id === m.id) ? { ...m, status: "read" } : m
+          ));
+        }
+      }
+    } catch (err) {
+      console.error("Error selecting room:", err);
     }
+    setLoading(false);
   }, [fetchProfiles, user]);
 
   const sendMessage = useCallback(async (content: string, file?: File) => {
     const currentRoom = activeRoomRef.current;
     if (!currentRoom || !user) return;
+    if (!content.trim() && !file) return; // Prevent empty messages
 
     let fileUrl: string | null = null;
     let fileName: string | null = null;
@@ -224,24 +237,28 @@ export const ChatProvider = ({ children }: { children: ReactNode }) => {
 
     if (file) {
       const ext = file.name.split(".").pop();
-      const path = `${user.id}/${Date.now()}.${ext}`;
+      const safeName = `${Date.now()}_${Math.random().toString(36).slice(2)}`;
+      const path = `${user.id}/${safeName}.${ext}`;
       const { error: uploadErr } = await supabase.storage
         .from("chat-files")
         .upload(path, file);
 
-      if (!uploadErr) {
-        const { data: urlData } = supabase.storage.from("chat-files").getPublicUrl(path);
-        fileUrl = urlData.publicUrl;
-        fileName = file.name;
-        fileType = file.type;
+      if (uploadErr) {
+        console.error("File upload failed:", uploadErr);
+        return;
       }
+      const { data: urlData } = supabase.storage.from("chat-files").getPublicUrl(path);
+      fileUrl = urlData.publicUrl;
+      fileName = file.name;
+      fileType = file.type;
     }
 
     const msgContent = content || (fileName ? `Sent a file: ${fileName}` : "");
 
-    // Optimistically add message to UI
+    // Optimistic message with a temp ID
+    const tempId = `temp-${crypto.randomUUID()}`;
     const optimisticMsg: MessageRow = {
-      id: crypto.randomUUID(),
+      id: tempId,
       room_id: currentRoom.id,
       sender_id: user.id,
       content: msgContent,
@@ -265,90 +282,99 @@ export const ChatProvider = ({ children }: { children: ReactNode }) => {
 
     if (error) {
       console.error("Send error:", error);
-      // Remove optimistic message on failure
-      setMessages((prev) => prev.filter((m) => m.id !== optimisticMsg.id));
+      setMessages((prev) => prev.filter((m) => m.id !== tempId));
     } else if (data) {
-      // Replace optimistic message with real one
-      setMessages((prev) => prev.map((m) => m.id === optimisticMsg.id ? data : m));
+      // Replace optimistic with real message
+      setMessages((prev) => prev.map((m) => m.id === tempId ? data : m));
     }
   }, [user]);
 
   const markAsRead = useCallback(async (messageIds: string[]) => {
     if (messageIds.length === 0) return;
     await supabase.from("messages").update({ status: "read" }).in("id", messageIds);
+    setMessages(prev => prev.map(m => messageIds.includes(m.id) ? { ...m, status: "read" } : m));
   }, []);
 
   const startChat = useCallback(async (otherUserId: string): Promise<ChatRoom | null> => {
     if (!user) return null;
+    if (otherUserId === user.id) return null; // Prevent self-chat
 
-    // Check for existing private room
-    const { data: myRooms } = await supabase
-      .from("room_memberships")
-      .select("room_id")
-      .eq("user_id", user.id);
+    // Lock to prevent duplicate room creation
+    const lockKey = [user.id, otherUserId].sort().join("-");
+    if (startChatLockRef.current.has(lockKey)) return null;
+    startChatLockRef.current.add(lockKey);
 
-    if (myRooms) {
-      for (const r of myRooms) {
-        const { data: otherMember } = await supabase
-          .from("room_memberships")
-          .select("user_id")
-          .eq("room_id", r.room_id)
-          .eq("user_id", otherUserId)
-          .maybeSingle();
+    try {
+      // Check for existing private room
+      const { data: myRooms } = await supabase
+        .from("room_memberships")
+        .select("room_id")
+        .eq("user_id", user.id);
 
-        if (otherMember) {
-          const { data: room } = await supabase
-            .from("chat_rooms")
-            .select("*")
-            .eq("id", r.room_id)
-            .eq("type", "private")
+      if (myRooms) {
+        for (const r of myRooms) {
+          const { data: otherMember } = await supabase
+            .from("room_memberships")
+            .select("user_id")
+            .eq("room_id", r.room_id)
+            .eq("user_id", otherUserId)
             .maybeSingle();
-          if (room) {
-            const profileMap = await fetchProfiles([user.id, otherUserId]);
-            const chatRoom: ChatRoom = {
-              ...room,
-              participants: [profileMap[user.id], profileMap[otherUserId]].filter(Boolean),
-              unreadCount: 0,
-            };
-            await loadChatRooms();
-            return chatRoom;
+
+          if (otherMember) {
+            const { data: room } = await supabase
+              .from("chat_rooms")
+              .select("*")
+              .eq("id", r.room_id)
+              .eq("type", "private")
+              .maybeSingle();
+            if (room) {
+              const profileMap = await fetchProfiles([user.id, otherUserId]);
+              const chatRoom: ChatRoom = {
+                ...room,
+                participants: [profileMap[user.id], profileMap[otherUserId]].filter(Boolean),
+                unreadCount: 0,
+              };
+              await loadChatRooms();
+              return chatRoom;
+            }
           }
         }
       }
+
+      // Create new room
+      const { data: newRoom, error: roomErr } = await supabase
+        .from("chat_rooms")
+        .insert({ type: "private", created_by: user.id })
+        .select()
+        .single();
+
+      if (roomErr || !newRoom) {
+        console.error("Failed to create room:", roomErr);
+        return null;
+      }
+
+      const { error: memberErr } = await supabase.from("room_memberships").insert([
+        { room_id: newRoom.id, user_id: user.id },
+        { room_id: newRoom.id, user_id: otherUserId },
+      ]);
+
+      if (memberErr) {
+        console.error("Failed to add memberships:", memberErr);
+        return null;
+      }
+
+      const profileMap = await fetchProfiles([user.id, otherUserId]);
+      const chatRoom: ChatRoom = {
+        ...newRoom,
+        participants: [profileMap[user.id], profileMap[otherUserId]].filter(Boolean),
+        unreadCount: 0,
+      };
+
+      await loadChatRooms();
+      return chatRoom;
+    } finally {
+      startChatLockRef.current.delete(lockKey);
     }
-
-    // Create new room — insert without .select() to avoid SELECT RLS timing issue
-    const { data: newRoom, error: roomErr } = await supabase
-      .from("chat_rooms")
-      .insert({ type: "private", created_by: user.id })
-      .select()
-      .single();
-
-    if (roomErr || !newRoom) {
-      console.error("Failed to create room:", roomErr);
-      return null;
-    }
-
-    // Insert both memberships
-    const { error: memberErr } = await supabase.from("room_memberships").insert([
-      { room_id: newRoom.id, user_id: user.id },
-      { room_id: newRoom.id, user_id: otherUserId },
-    ]);
-
-    if (memberErr) {
-      console.error("Failed to add memberships:", memberErr);
-      return null;
-    }
-
-    const profileMap = await fetchProfiles([user.id, otherUserId]);
-    const chatRoom: ChatRoom = {
-      ...newRoom,
-      participants: [profileMap[user.id], profileMap[otherUserId]].filter(Boolean),
-      unreadCount: 0,
-    };
-
-    await loadChatRooms();
-    return chatRoom;
   }, [user, fetchProfiles, loadChatRooms]);
 
   const searchUsers = useCallback(async (query: string): Promise<Profile[]> => {
@@ -412,7 +438,7 @@ export const ChatProvider = ({ children }: { children: ReactNode }) => {
     return () => { supabase.removeChannel(channel); };
   }, [activeRoom?.id, user]);
 
-  // Realtime subscription for new messages
+  // Realtime subscription for messages
   useEffect(() => {
     if (!user) return;
 
@@ -432,24 +458,49 @@ export const ChatProvider = ({ children }: { children: ReactNode }) => {
 
           if (currentActive && newMsg.room_id === currentActive.id) {
             setMessages((prev) => {
+              // Deduplicate: skip if real ID exists or if it's our optimistic msg
               if (prev.some((m) => m.id === newMsg.id)) return prev;
+              // If this is from current user, the optimistic msg is already there
+              // Replace any temp message for this content
+              if (newMsg.sender_id === user.id) {
+                const tempIdx = prev.findIndex(
+                  m => m.id.startsWith("temp-") && m.sender_id === user.id && m.content === newMsg.content
+                );
+                if (tempIdx >= 0) {
+                  const updated = [...prev];
+                  updated[tempIdx] = newMsg;
+                  return updated;
+                }
+              }
               return [...prev, newMsg];
             });
-            // Auto-mark as read if from other user
+
+            // Auto-mark as read if from other user, update to delivered first
             if (newMsg.sender_id !== user.id) {
               supabase.from("messages").update({ status: "read" }).eq("id", newMsg.id).then(() => {});
             }
+          } else if (newMsg.sender_id !== user.id) {
+            // Message in a different room - mark as delivered
+            supabase.from("messages").update({ status: "delivered" }).eq("id", newMsg.id).eq("status", "sent").then(() => {});
           }
-          // Update last message in room list
-          setChatRooms((prev) =>
-            prev.map((r) =>
-              r.id === newMsg.room_id ? { ...r, lastMessage: newMsg } : r
-            ).sort((a, b) => {
+
+          // Update last message and unread count in room list
+          setChatRooms((prev) => {
+            const updated = prev.map((r) => {
+              if (r.id !== newMsg.room_id) return r;
+              const isActiveRoom = currentActive?.id === newMsg.room_id;
+              return {
+                ...r,
+                lastMessage: newMsg,
+                unreadCount: (!isActiveRoom && newMsg.sender_id !== user.id) ? r.unreadCount + 1 : r.unreadCount,
+              };
+            });
+            return updated.sort((a, b) => {
               const ta = a.lastMessage?.created_at || a.created_at;
               const tb = b.lastMessage?.created_at || b.created_at;
               return new Date(tb).getTime() - new Date(ta).getTime();
-            })
-          );
+            });
+          });
         }
       )
       .on(
