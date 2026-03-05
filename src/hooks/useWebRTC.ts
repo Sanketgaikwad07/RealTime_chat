@@ -19,18 +19,25 @@ export const useWebRTC = () => {
 
   const pc = useRef<RTCPeerConnection | null>(null);
   const pendingCandidates = useRef<RTCIceCandidateInit[]>([]);
+  const pendingOffer = useRef<RTCSessionDescriptionInit | null>(null);
+  const callStateRef = useRef(callState);
+  const localStreamRef = useRef<MediaStream | null>(null);
+
+  useEffect(() => { callStateRef.current = callState; }, [callState]);
+  useEffect(() => { localStreamRef.current = localStream; }, [localStream]);
 
   const cleanup = useCallback(() => {
-    localStream?.getTracks().forEach(t => t.stop());
+    localStreamRef.current?.getTracks().forEach(t => t.stop());
     pc.current?.close();
     pc.current = null;
+    pendingOffer.current = null;
+    pendingCandidates.current = [];
     setLocalStream(null);
     setRemoteStream(null);
     setCallState("idle");
     setRemoteUserId(null);
     setCurrentRoomId(null);
-    pendingCandidates.current = [];
-  }, [localStream]);
+  }, []);
 
   const sendSignal = useCallback(async (roomId: string, calleeId: string, type: string, payload: any) => {
     if (!user) return;
@@ -59,7 +66,11 @@ export const useWebRTC = () => {
     };
 
     connection.oniceconnectionstatechange = () => {
-      if (connection.iceConnectionState === "disconnected" || connection.iceConnectionState === "failed") {
+      const state = connection.iceConnectionState;
+      if (state === "connected" || state === "completed") {
+        setCallState("connected");
+      }
+      if (state === "disconnected" || state === "failed" || state === "closed") {
         cleanup();
       }
     };
@@ -68,8 +79,9 @@ export const useWebRTC = () => {
     return connection;
   }, [sendSignal, cleanup]);
 
+  // Caller initiates the call
   const startCall = useCallback(async (roomId: string, otherUserId: string, type: "audio" | "video") => {
-    if (!user) return;
+    if (!user || callStateRef.current !== "idle") return;
     try {
       setCallType(type);
       setCallState("calling");
@@ -85,22 +97,21 @@ export const useWebRTC = () => {
       const connection = createPeerConnection(roomId, otherUserId);
       stream.getTracks().forEach(t => connection.addTrack(t, stream));
 
-      await sendSignal(roomId, otherUserId, "call-start", { callType: type });
-
       const offer = await connection.createOffer();
       await connection.setLocalDescription(offer);
-      await sendSignal(roomId, otherUserId, "offer", { sdp: offer });
+
+      // Send call-start first, then the offer
+      await sendSignal(roomId, otherUserId, "call-start", { callType: type, sdp: offer });
     } catch (err) {
       console.error("Failed to start call:", err);
       cleanup();
     }
   }, [user, createPeerConnection, sendSignal, cleanup]);
 
+  // Callee accepts
   const acceptCall = useCallback(async () => {
     if (!currentRoomId || !remoteUserId || !user) return;
     try {
-      setCallState("connected");
-
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: true,
         video: callType === "video",
@@ -110,16 +121,28 @@ export const useWebRTC = () => {
       const connection = createPeerConnection(currentRoomId, remoteUserId);
       stream.getTracks().forEach(t => connection.addTrack(t, stream));
 
-      // Process pending candidates
+      // Apply the stored offer
+      if (pendingOffer.current) {
+        await connection.setRemoteDescription(new RTCSessionDescription(pendingOffer.current));
+        pendingOffer.current = null;
+
+        const answer = await connection.createAnswer();
+        await connection.setLocalDescription(answer);
+        await sendSignal(currentRoomId, remoteUserId, "answer", { sdp: answer });
+      }
+
+      // Apply any buffered ICE candidates
       for (const c of pendingCandidates.current) {
         await connection.addIceCandidate(new RTCIceCandidate(c));
       }
       pendingCandidates.current = [];
+
+      setCallState("connected");
     } catch (err) {
       console.error("Failed to accept call:", err);
       cleanup();
     }
-  }, [currentRoomId, remoteUserId, user, callType, createPeerConnection, cleanup]);
+  }, [currentRoomId, remoteUserId, user, callType, createPeerConnection, sendSignal, cleanup]);
 
   const rejectCall = useCallback(async () => {
     if (currentRoomId && remoteUserId) {
@@ -135,7 +158,7 @@ export const useWebRTC = () => {
     cleanup();
   }, [currentRoomId, remoteUserId, sendSignal, cleanup]);
 
-  // Listen for call signals
+  // Listen for call signals via realtime
   useEffect(() => {
     if (!user) return;
 
@@ -149,31 +172,43 @@ export const useWebRTC = () => {
           if (signal.callee_id !== user.id) return;
 
           switch (signal.type) {
-            case "call-start":
+            case "call-start": {
+              // Incoming call — store the offer SDP for later
+              if (callStateRef.current !== "idle") break;
               setCallState("incoming");
               setCallType(signal.payload?.callType || "audio");
               setRemoteUserId(signal.caller_id);
               setCurrentRoomId(signal.room_id);
+              if (signal.payload?.sdp) {
+                pendingOffer.current = signal.payload.sdp;
+              }
               break;
+            }
 
-            case "offer":
+            case "offer": {
+              // Fallback: if offer arrives separately
+              if (signal.payload?.sdp) {
+                if (pc.current?.signalingState === "stable" || !pc.current) {
+                  pendingOffer.current = signal.payload.sdp;
+                } else {
+                  await pc.current.setRemoteDescription(new RTCSessionDescription(signal.payload.sdp));
+                  const answer = await pc.current.createAnswer();
+                  await pc.current.setLocalDescription(answer);
+                  await sendSignal(signal.room_id, signal.caller_id, "answer", { sdp: answer });
+                }
+              }
+              break;
+            }
+
+            case "answer": {
               if (pc.current && signal.payload?.sdp) {
                 await pc.current.setRemoteDescription(new RTCSessionDescription(signal.payload.sdp));
-                const answer = await pc.current.createAnswer();
-                await pc.current.setLocalDescription(answer);
-                await sendSignal(signal.room_id, signal.caller_id, "answer", { sdp: answer });
                 setCallState("connected");
               }
               break;
+            }
 
-            case "answer":
-              if (pc.current && signal.payload?.sdp) {
-                await pc.current.setRemoteDescription(new RTCSessionDescription(signal.payload.sdp));
-                setCallState("connected");
-              }
-              break;
-
-            case "ice-candidate":
+            case "ice-candidate": {
               if (signal.payload?.candidate) {
                 if (pc.current?.remoteDescription) {
                   await pc.current.addIceCandidate(new RTCIceCandidate(signal.payload.candidate));
@@ -182,6 +217,7 @@ export const useWebRTC = () => {
                 }
               }
               break;
+            }
 
             case "call-end":
             case "call-reject":
